@@ -1180,8 +1180,8 @@ async function loadFuelPrices() {
     }
     try {
       const [resE10, resDiesel] = await Promise.all([
-        fetch('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=e10&apikey=' + TANKERKOENIG_KEY),
-        fetch('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=diesel&apikey=' + TANKERKOENIG_KEY)
+        fetch('https://corsproxy.io/?' + encodeURIComponent('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=e10&apikey=' + TANKERKOENIG_KEY)),
+        fetch('https://corsproxy.io/?' + encodeURIComponent('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=diesel&apikey=' + TANKERKOENIG_KEY))
       ]);
       const dataE10 = await resE10.json();
       const dataDiesel = await resDiesel.json();
@@ -1202,7 +1202,7 @@ async function loadFuelPrices() {
     el.innerHTML = '🇩🇪 Super E10: <b>' + de.e10 + ' €</b> · Diesel: <b>' + de.diesel + ' €</b> &nbsp;·&nbsp; 🇦🇹 Super E5: <b>' + at.e95 + ' €</b> · Diesel: <b>' + at.diesel + ' €</b>';
     el.style.fontStyle = 'normal';
     el.style.color = 'var(--text)';
-    const deLabel = de.live ? 'live Tankerkönig, Umkreis Stuttgart' : 'Richtwert';
+    const deLabel = de.live ? 'live Tankerkönig, Umkreis Stuttgart' : (de.cors ? 'Richtwert – nur auf gehosteter Seite live' : 'Richtwert');
     const atLabel = at.live ? 'live E-Control, Umkreis Innsbruck' : 'Richtwert';
     if (note) note.textContent = '(🇩🇪 ' + deLabel + ' · 🇦🇹 ' + atLabel + ')';
   } catch(e) {
