@@ -1186,6 +1186,1325 @@ async function loadFuelPrices() {
       return { e10: '~2,08', diesel: '~2,15', live: false };
     }
     try {
+      const tkFetch = async type => {
+        const r = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=' + type + '&apikey=' + TANKERKOENIG_KEY));
+        const d = await r.json();
+        return JSON.parse(d.contents);
+      };
+      // Sequentiell statt parallel – allorigins rate-limit vermeiden
+      const dataE5de     = await tkFetch('e5');
+      await new Promise(r => setTimeout(r, 500));
+      const dataE10de    = await tkFetch('e10');
+      await new Promise(r => setTimeout(r, 500));
+      const dataDieselde = await tkFetch('diesel');
+      const stE5  = (dataE5de.stations||[]).filter(s=>s.e5>0).slice(0,10);
+      const stE10 = (dataE10de.stations||[]).filter(s=>s.e10>0).slice(0,10);
+      const stDi  = (dataDieselde.stations||[]).filter(s=>s.diesel>0).slice(0,10);
+      const avgE5  = stE5.length  ? stE5.reduce((a,s)=>a+s.e5,0)/stE5.length   : null;
+      const avgE10 = stE10.length ? stE10.reduce((a,s)=>a+s.e10,0)/stE10.length : null;
+      const avgDi  = stDi.length  ? stDi.reduce((a,s)=>a+s.diesel,0)/stDi.length : null;
+
+      return {
+        e5:     avgE5  ? avgE5.toFixed(3).replace('.',',')  : '~2,06',
+        e10:    avgE10 ? avgE10.toFixed(3).replace('.',',') : '~2,08',
+        diesel: avgDi  ? avgDi.toFixed(3).replace('.',',')  : '~2,15',
+        live: true
+      };
+    } catch(e) {
+      return { e10: '~2,08', diesel: '~2,15', live: false };
+    }
+  }
+
+  try {
+    const [de, at] = await Promise.all([loadGermany(), loadAustria()]);
+    el.innerHTML = '🇩🇪 Super E5: <b>' + de.e5 + ' €</b> · E10: <b>' + de.e10 + ' €</b> · Diesel: <b>' + de.diesel + ' €</b> &nbsp;·&nbsp; 🇦🇹 Super E5: <b>' + at.e5 + ' €</b> · E10: <b>' + at.e10 + ' €</b> · Diesel: <b>' + at.diesel + ' €</b>';
+    el.style.fontStyle = 'normal';
+    el.style.color = 'var(--text)';
+    const deLabel = de.live ? 'live Tankerkönig, Umkreis Stuttgart' : (de.cors ? 'Richtwert – nur auf gehosteter Seite live' : 'Richtwert');
+    const atLabel = at.live ? 'live E-Control, Umkreis Innsbruck' : 'Richtwert';
+    if (note) note.textContent = '(🇩🇪 ' + deLabel + ' · 🇦🇹 ' + atLabel + ')';
+  } catch(e) {
+    el.textContent = '🇩🇪 Super E5: ~2,06 € · E10: ~2,08 € · Diesel: ~2,15 €  ·  🇦🇹 Super E5: ~1,54 € · E10: ~1,52 € · Diesel: ~1,58 €';
+    el.style.fontStyle = 'normal';
+    if (note) note.textContent = '(Richtwerte)';
+  }
+}
+loadFuelPrices();
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Packliste ─────────────────────────────────────────────────────────────────
+const PACKLISTE = [
+  {
+    cat: '🎿 Skiausrüstung',
+    items: ['Ski', 'Skistöcke', 'Skischuhe', 'Skihelm', 'Skibrille', 'Handschuhe', 'Schal / Halstuch']
+  },
+  {
+    cat: '👗 Bekleidung',
+    items: ['Skijacke', 'Skihose', 'Skiunterwäsche (funktional)', 'Fleecejacke / Midlayer', 'Après-Ski Outfit', 'Wechselkleidung', 'Socken (Skisocken)']
+  },
+  {
+    cat: '🧴 Pflege & Gesundheit',
+    items: ['Sonnencreme (mind. LSF 50)', 'Lippenpflege mit LSF', 'Kopfschmerztabletten', 'Pflaster & Verbandsmaterial', 'Augentropfen']
+  },
+  {
+    cat: '🚗 Fahrt & Sicherheit',
+    items: ['Schneeketten (oder geprüft)', 'Österreich-Vignette', 'Eiskratzer / Schneebesen', 'Pannenweste', 'Reiseapotheke']
+  },
+  {
+    cat: '📱 Technik & Dokumente',
+    items: ['Personalausweis / Reisepass', 'Krankenversicherungskarte', 'Skiversicherung', 'Ladekabel / Powerbank', 'Kopfhörer']
+  },
+  {
+    cat: '🏠 Unterkunft',
+    items: ['Buchungsbestätigung', 'Bargeld (€)', 'Schuhbeutel', 'Eigenhandtuch']
+  }
+];
+
+function togglePackliste() {
+  const grid = document.getElementById('packliste-grid');
+  const arrow = document.getElementById('pack-arrow');
+  const progress = document.getElementById('pack-progress-wrap');
+  const resetBtn = document.getElementById('pack-reset-btn');
+  const isOpen = grid.style.display !== 'none';
+  grid.style.display = isOpen ? 'none' : 'grid';
+  arrow.style.transform = isOpen ? '' : 'rotate(180deg)';
+  progress.style.display = isOpen ? 'none' : 'inline';
+  resetBtn.style.display = isOpen ? 'none' : 'inline-block';
+}
+
+function initPackliste() {
+  const saved = JSON.parse(localStorage.getItem('packliste') || '{}');
+  const grid = document.getElementById('packliste-grid');
+  let totalCount = 0;
+
+  PACKLISTE.forEach(cat => {
+    const col = document.createElement('div');
+    col.innerHTML = '<div class="packliste-cat-title">' + cat.cat + '</div><div class="packliste-items" id="cat-' + cat.cat.replace(/\W/g,'') + '"></div>';
+    const itemsEl = col.querySelector('.packliste-items');
+
+    cat.items.forEach(item => {
+      totalCount++;
+      const isChecked = !!saved[item];
+      const div = document.createElement('label');
+      div.className = 'pack-item' + (isChecked ? ' checked' : '');
+      div.innerHTML = '<div class="pack-check">' + (isChecked ? '✓' : '') + '</div><span class="pack-label">' + item + '</span>';
+      div.addEventListener('click', () => togglePackItem(item, div));
+      itemsEl.appendChild(div);
+    });
+
+    grid.appendChild(col);
+  });
+
+  document.getElementById('pack-total').textContent = totalCount;
+  updatePackProgress();
+}
+
+function togglePackItem(item, el) {
+  const saved = JSON.parse(localStorage.getItem('packliste') || '{}');
+  const isNowChecked = !el.classList.contains('checked');
+  if (isNowChecked) {
+    saved[item] = true;
+    el.classList.add('checked');
+    el.querySelector('.pack-check').textContent = '✓';
+  } else {
+    delete saved[item];
+    el.classList.remove('checked');
+    el.querySelector('.pack-check').textContent = '';
+  }
+  localStorage.setItem('packliste', JSON.stringify(saved));
+  updatePackProgress();
+}
+
+function updatePackProgress() {
+  const saved = JSON.parse(localStorage.getItem('packliste') || '{}');
+  document.getElementById('pack-done').textContent = Object.keys(saved).length;
+}
+
+function resetPackliste() {
+  localStorage.removeItem('packliste');
+  document.querySelectorAll('.pack-item').forEach(el => {
+    el.classList.remove('checked');
+    el.querySelector('.pack-check').textContent = '';
+  });
+  updatePackProgress();
+}
+
+initPackliste();
+// ─────────────────────────────────────────────────────────────────────────────
+loadHotels();
+// ─────────────────────────────────────────────────────────────────────────────
+initDashboard();
+setInterval(initDashboard, REFRESH_INTERVAL_MS);
+window.addEventListener("resize", recalcAllTickers);
+
+// Scroll-Guard: verhindert dass iframes den Scroll-Event "stehlen"
+// Beim Klick wird der Guard kurz deaktiviert damit der Klick ans iframe geht
+document.querySelectorAll(".cam-card").forEach(card => {
+  const guard = document.createElement("div");
+  guard.className = "iframe-scroll-guard";
+
+  // Scroll-Events an window weiterleiten
+  guard.addEventListener("wheel", e => {
+    e.preventDefault();
+    window.scrollBy({ top: e.deltaY, left: 0, behavior: "auto" });
+  }, { passive: false });
+
+  // Klick: Guard kurz deaktivieren damit Klick ans iframe durchkommt
+  guard.addEventListener("click", () => {
+    guard.style.pointerEvents = "none";
+    setTimeout(() => { guard.style.pointerEvents = ""; }, 1500);
+  });
+
+  card.appendChild(guard);
+});
+</script>
+
+<footer style="text-align:center; margin-top:64px; padding: 28px 0; border-top: 1px solid var(--border);">
+
+  <a id="contact-link" href="#" style="color:var(--accent); text-decoration:none; font-weight:500; font-size:0.82rem; transition:color 0.2s;" onmouseover="this.style.color='var(--accent2)'" onmouseout="this.style.color='var(--accent)'">Feedback</a>
+  <span style="display:block; margin-top:10px; font-size:0.65rem; color:var(--muted); opacity:0.5;">Spritpreise Deutschland: <a href="https://www.tankerkoenig.de" target="_blank" rel="noopener" style="color:var(--muted);">Tankerkönig</a> (CC BY 4.0) · Österreich: E-Control</span>
+</footer>
+
+<script>
+// E-Mail obfuscated – assembled at runtime, not readable by crawlers
+(function(){
+  var u = 'rwuehler';
+  var d = 'yahoo.com.au';
+  var e = u + '\u0040' + d;
+  var a = document.getElementById('contact-link');
+  a.href = 'mai' + 'lto:' + e;
+  a.textContent = 'Feedback';
+})();
+</script>
+
+</div><!-- /page-wrap -->
+
+</body>
+</html>  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+h1 {
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(2.2rem, 5vw, 3.6rem);
+  font-weight: 400;
+  margin: 0 0 4px;
+  letter-spacing: -0.02em;
+  color: #f1f5f9;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.subtitle {
+  display: block;
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+  font-weight: 400;
+  letter-spacing: 0.05em;
+  color: #f1f5f9;
+  margin-top: 0;
+}
+
+.hint {
+  margin: 14px auto 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 300;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ── Region sections ── */
+.region {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 26px 26px 30px;
+  margin-bottom: 28px;
+  transition: border-color 0.3s;
+}
+.region:hover { border-color: rgba(255,255,255,0.11); }
+
+.region h2 {
+  margin: 0 0 20px;
+  font-family: 'DM Serif Display', Georgia, serif;
+  font-size: 1.45rem;
+  font-weight: 400;
+  color: #e2e8f0;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.region-link {
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.region-link:hover { color: var(--accent2); }
+.region-link::after {
+  content: " ↗";
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.52em;
+  opacity: 0.4;
+  vertical-align: super;
+}
+
+.region-dist {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.64rem;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* ── Cam grid ── */
+.cam-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 18px;
+}
+
+.cam-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 13px;
+  position: relative;
+  transition: border-color 0.25s, background 0.25s, transform 0.2s;
+}
+.cam-card:hover {
+  background: var(--card-hover);
+  border-color: rgba(74,158,255,0.2);
+  transform: translateY(-2px);
+}
+
+.cam-card h3 {
+  margin: 0 0 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.cam-card iframe, .cam-card video {
+  width: 100%;
+  height: 440px;
+  border: none;
+  border-radius: 8px;
+  background: #05080d;
+  display: block;
+  object-fit: cover;
+}
+
+.iframe-scroll-guard {
+  position: absolute;
+  top: 13px; left: 13px; right: 13px;
+  height: 440px;
+  z-index: 10;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.cam-link {
+  margin-top: 9px;
+  font-size: 0.72rem;
+}
+.cam-link a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+.cam-link a:hover { opacity: 1; }
+
+.placeholder {
+  width: 100%;
+  height: 440px;
+  background: #0b0f16;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* ── Weather ticker ── */
+.ticker-wrap {
+  margin-top: 18px;
+  overflow: hidden;
+  background: var(--ticker-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 9px 0;
+  visibility: hidden;
+  touch-action: pan-y;
+}
+.ticker-wrap.is-ready { visibility: visible; }
+
+.ticker {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  will-change: transform;
+  animation-name: ticker-marquee;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-duration: 22s;
+}
+.ticker-wrap:hover .ticker { animation-play-state: paused; }
+
+.ticker-item {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 400;
+  padding-right: 140px;
+  display: inline-block;
+  color: #8aabcc;
+}
+
+.meta-note {
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+@keyframes ticker-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(calc(-1 * var(--ticker-shift, 1000px))); }
+}
+
+
+
+/* ── Info-Leiste ── */
+.info-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  column-gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 20px;
+  margin-bottom: 28px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.info-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.info-bar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.info-bar-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.info-bar-link:hover { color: var(--accent2); }
+.fuel-de, .fuel-at { color: var(--text); }
+.fuel-sep { color: var(--muted); }
+.fuel-note { font-size: 0.68rem; color: var(--muted); font-style: italic; }
+@media (max-width: 768px) {
+  .info-bar { flex-direction: column; align-items: flex-start; }
+  .info-bar-divider { width: 100%; height: 1px; }
+}
+
+
+/* ── Packliste ── */
+.packliste-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px 20px;
+  margin-bottom: 28px;
+}
+.packliste-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.packliste-title {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0;
+}
+.packliste-progress {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.packliste-progress b { color: var(--accent2); }
+.packliste-reset {
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: border-color 0.2s, color 0.2s;
+}
+.packliste-reset:hover { border-color: rgba(91,163,245,0.4); color: var(--accent2); }
+.packliste-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+.packliste-cat-title {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.packliste-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pack-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 7px;
+  transition: background 0.15s;
+  user-select: none;
+}
+.pack-item:hover { background: rgba(255,255,255,0.04); }
+.pack-item input[type="checkbox"] { display: none; }
+.pack-check {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s;
+  font-size: 11px;
+}
+.pack-item.checked .pack-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.pack-label {
+  font-size: 0.82rem;
+  color: var(--text);
+  transition: color 0.2s, text-decoration 0.2s;
+}
+.pack-item.checked .pack-label {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+/* ── Hotel Accordion ── */
+.hotel-section { margin-top: 16px; }
+.hotel-toggle { display: flex; align-items: center; gap: 8px; background: none; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 0.76rem; font-weight: 500; letter-spacing: 0.04em; padding: 8px 14px; cursor: pointer; transition: border-color 0.2s, color 0.2s, background 0.2s; width: 100%; text-align: left; }
+.hotel-toggle:hover { border-color: rgba(91,163,245,0.35); color: var(--accent2); background: rgba(91,163,245,0.04); }
+.hotel-toggle .toggle-arrow { margin-left: auto; transition: transform 0.25s; font-size: 0.7rem; opacity: 0.6; }
+.hotel-toggle.is-open { border-color: rgba(91,163,245,0.25); color: var(--accent2); border-radius: 8px 8px 0 0; border-bottom-color: transparent; }
+.hotel-toggle.is-open .toggle-arrow { transform: rotate(180deg); }
+.hotel-body { display: none; flex-direction: column; gap: 10px; border: 1px solid rgba(91,163,245,0.25); border-top: none; border-radius: 0 0 8px 8px; padding: 14px; background: rgba(91,163,245,0.02); }
+.hotel-body.is-open { display: flex; }
+.hotel-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 13px 16px; display: flex; flex-direction: column; gap: 5px; transition: border-color 0.2s; }
+.hotel-card:hover { border-color: rgba(91,163,245,0.2); }
+.hotel-name { font-size: 0.85rem; font-weight: 600; color: #e2e8f0; }
+.hotel-desc { font-size: 0.79rem; color: var(--text); font-weight: 300; line-height: 1.55; }
+.hotel-dist { font-size: 0.71rem; color: var(--muted); }
+.hotel-links { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+.hotel-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 500; padding: 5px 12px; border-radius: 6px; text-decoration: none; transition: background 0.2s, border-color 0.2s; border: 1px solid var(--border); color: var(--accent); background: rgba(91,163,245,0.06); }
+.hotel-btn:hover { background: rgba(91,163,245,0.14); border-color: rgba(91,163,245,0.3); }
+.hotel-btn.maps { color: #6ee7b7; background: rgba(110,231,183,0.06); border-color: rgba(110,231,183,0.15); }
+.hotel-btn.maps:hover { background: rgba(110,231,183,0.13); border-color: rgba(110,231,183,0.3); }
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .cam-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 900px) {
+  body { padding: 24px 16px 48px; }
+  .cam-grid { grid-template-columns: 1fr; }
+  .cam-card iframe, .cam-card video, .iframe-scroll-guard, .placeholder {
+    height: 56vw; min-height: 200px; max-height: 380px;
+  }
+  .region { padding: 18px 14px 22px; }
+  .region h2 { font-size: 1.25rem; }
+  .site-header { margin-bottom: 40px; }
+}
+@media (max-width: 480px) {
+  body { padding: 14px 10px 40px; }
+  h1 { font-size: 1.9rem; }
+  .cam-card iframe, .cam-card video, .placeholder {
+    height: 60vw; min-height: 180px;
+  }
+  .region-dist { display: block; margin-left: 0; margin-top: 4px; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="page-wrap">
+
+<header class="site-header">
+  <span class="subtitle">Pistencams &mdash; Live aus den Alpen</span>
+  <p class="hint">Einmal klicken zum Reinzoomen</p>
+</header>
+
+<div class="info-bar">
+  <div class="info-bar-item">
+    🛣️ <strong>Österreich-Vignette:</strong>
+    <a href="https://www.adac.de/fahrzeugwelt/maut-vignette/oesterreich/vignette-oesterreich-kaufen/" target="_blank" rel="noopener" class="info-bar-link" style="color:#FFD700; font-weight:700;">Jetzt beim ADAC kaufen ↗</a>
+  </div>
+  <div class="info-bar-divider"></div>
+  <div class="info-bar-item">
+    🚗 <strong>Verkehr:</strong>
+    <a href="https://www.adac.de/verkehr/verkehrsinformationen/" target="_blank" rel="noopener" class="info-bar-link">ADAC Staumelder</a>
+
+  </div>
+  <div style="flex-basis:100%; height:0; margin:-10px 0 0 0; padding:0;"></div>
+  <div class="info-bar-item" id="fuel-prices">
+    ⛽ <strong>Spritpreise:</strong>
+    <span id="fuel-text" style="color:var(--muted); font-style:italic;">wird geladen…</span>
+    <span class="fuel-note" id="fuel-note"></span>
+  </div>
+  <div style="flex-basis:100%; height:0; margin:-10px 0 0 0; padding:0;"></div>
+  <div class="info-bar-item">
+    <div id="packliste-toggle" onclick="togglePackliste()" style="cursor:pointer; display:flex; align-items:center; gap:8px;">
+      <strong>🎿 &nbsp;&nbsp;Packliste</strong>
+      <span class="toggle-arrow" id="pack-arrow" style="font-size:0.7rem; color:var(--muted); transition:transform 0.25s;">▼</span>
+    </div>
+    <span id="pack-progress-wrap" style="display:none; color:var(--muted); font-size:0.75rem;"><b id="pack-done">0</b> / <span id="pack-total">0</span> eingepackt</span>
+    <button class="packliste-reset" id="pack-reset-btn" style="display:none;" onclick="resetPackliste()">↺</button>
+  </div>
+</div>
+<div id="packliste-grid" class="packliste-categories" style="display:none; background:var(--surface); border:1px solid var(--border); border-top:none; border-radius:0 0 12px 12px; padding:16px 20px 20px; margin-top:-28px; margin-bottom:28px;"></div>
+
+
+<!-- ═══════════════════════════════════════════════════════════ ALLGÄU -->
+<section class="region">
+  <h2><a href="https://www.oberstdorf.de/winter/skifahren.html" target="_blank" rel="noopener" class="region-link">Allgäu / Oberstdorf</a> <span class="region-dist">Entfernungen: Stuttgart ~220 km · München ~168 km · Ulm ~133 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Nebelhorn</h3>
+      <iframe src="https://ok-bergbahnen.panomax.com/nebelhorn" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://ok-bergbahnen.panomax.com/nebelhorn" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Kanzelwand (Kleinwalsertal)</h3>
+      <iframe src="https://ok-bergbahnen.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://ok-bergbahnen.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Ifen</h3>
+      <iframe src="https://ok-bergbahnen.panomax.com/ifen" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://ok-bergbahnen.panomax.com/ifen" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="allgaeuTickerWrap">
+    <div class="ticker" id="allgaeuTicker">
+      <div class="ticker-item" id="allgaeuTicker1">Allgäu Wetter wird geladen</div>
+      <div class="ticker-item" id="allgaeuTicker2">Allgäu Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="allgaeuMeta"></div>
+  <div class="hotel-section" id="hotels-allgaeu"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ MONTAFON -->
+<section class="region">
+  <h2><a href="https://www.montafon.at/de/winter" target="_blank" rel="noopener" class="region-link">Montafon</a> <span class="region-dist">Entfernungen: Stuttgart ~290 km · München ~290 km · Ulm ~205 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Nova Stoba</h3>
+      <iframe src="https://silvretta-montafon.panomax.com/nova-stoba" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://silvretta-montafon.panomax.com/nova-stoba" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Panoramabahn</h3>
+      <iframe src="https://silvretta-montafon.panomax.com/panoramabahn" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://silvretta-montafon.panomax.com/panoramabahn" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Gargellen</h3>
+      <iframe src="https://gargellen.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://gargellen.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="montafonTickerWrap">
+    <div class="ticker" id="montafonTicker">
+      <div class="ticker-item" id="montafonTicker1">Montafon Wetter wird geladen</div>
+      <div class="ticker-item" id="montafonTicker2">Montafon Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="montafonMeta"></div>
+  <div class="hotel-section" id="hotels-montafon"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ ARLBERG -->
+<section class="region">
+  <h2><a href="https://www.skiarlberg.at" target="_blank" rel="noopener" class="region-link">Arlberg</a> <span class="region-dist">Entfernungen: Stuttgart ~290 km · München ~255 km · Ulm ~230 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>St. Anton – Valluga</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5690" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5690" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Lech / Zürs – Kriegerhorn</h3>
+      <iframe src="https://kriegerhorn.skiarlberg.at" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://kriegerhorn.skiarlberg.at" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Warth-Schröcken – Salober Berg</h3>
+      <iframe src="https://warth-schroecken.panomax.com/berg" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://warth-schroecken.panomax.com/berg" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+
+  </div>
+  <div class="ticker-wrap" id="arlbergTickerWrap">
+    <div class="ticker" id="arlbergTicker">
+      <div class="ticker-item" id="arlbergTicker1">Arlberg Wetter wird geladen</div>
+      <div class="ticker-item" id="arlbergTicker2">Arlberg Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="arlbergMeta"></div>
+  <div class="hotel-section" id="hotels-arlberg"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ ZUGSPITZE -->
+<section class="region">
+  <h2><a href="https://www.zugspitze.de/winter/skigebiet" target="_blank" rel="noopener" class="region-link">Zugspitze / Garmisch</a> <span class="region-dist">Entfernungen: Stuttgart ~230 km · München ~96 km · Ulm ~185 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Zugspitze (Bayerische Zugspitzbahn)</h3>
+      <iframe src="https://zugspitze.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://zugspitze.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>AlpspiX / Alpspitze</h3>
+      <iframe src="https://alpspix.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://alpspix.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Zugspitze (Tiroler Seite)</h3>
+      <iframe src="https://ehrwald.panomax.com/zugspitze" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://ehrwald.panomax.com/zugspitze" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="zugspitzeTickerWrap">
+    <div class="ticker" id="zugspitzeTicker">
+      <div class="ticker-item" id="zugspitzeTicker1">Zugspitze Wetter wird geladen</div>
+      <div class="ticker-item" id="zugspitzeTicker2">Zugspitze Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="zugspitzeMeta"></div>
+  <div class="hotel-section" id="hotels-zugspitze"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ ISCHGL -->
+<section class="region">
+  <h2><a href="https://www.ischgl.com/de/winter" target="_blank" rel="noopener" class="region-link">Ischgl / Samnaun</a> <span class="region-dist">Entfernungen: Stuttgart ~310 km · München ~226 km · Ulm ~250 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Ischgl – Palinkopf (2864m)</h3>
+      <iframe src="https://palinkopf.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://palinkopf.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Ischgl – Vider Truja</h3>
+      <iframe src="https://ischgl.panomax.com/vider-truja" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://ischgl.panomax.com/vider-truja" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Alp Trida Sattel / Samnaun (2511m)</h3>
+      <iframe src="https://samnaun.panomax.com/alp-trida-sattel" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://samnaun.panomax.com/alp-trida-sattel" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="ischglTickerWrap">
+    <div class="ticker" id="ischglTicker">
+      <div class="ticker-item" id="ischglTicker1">Ischgl Wetter wird geladen</div>
+      <div class="ticker-item" id="ischglTicker2">Ischgl Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="ischglMeta"></div>
+  <div class="hotel-section" id="hotels-ischgl"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ SERFAUS -->
+<section class="region">
+  <h2><a href="https://www.serfaus-fiss-ladis.at/de/winter" target="_blank" rel="noopener" class="region-link">Serfaus-Fiss-Ladis</a> <span class="region-dist">Entfernungen: Stuttgart ~315 km · München ~235 km · Ulm ~255 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Serfaus – Masner (2442m)</h3>
+      <video src="https://sts002.feratel.co.at/streams/stsstore004/1/05681_69b2b3f6-1261Vid.mp4?dcsdesign=feratel4" autoplay muted loop playsinline></video>
+      <div class="cam-link"><a href="https://sts002.feratel.co.at/streams/stsstore004/1/05681_69b2b3f6-1261Vid.mp4?dcsdesign=feratel4" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Fiss – Plansegg</h3>
+      <video src="https://sts202.feratel.co.at/streams/stsstore202/1/05682_69b2b3f7-510fVid.mp4?dcsdesign=feratel4" autoplay muted loop playsinline></video>
+      <div class="cam-link"><a href="https://sts202.feratel.co.at/streams/stsstore202/1/05682_69b2b3f7-510fVid.mp4?dcsdesign=feratel4" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Fiss – Schönjoch (2436m)</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5238" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5238" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="serfausTickerWrap">
+    <div class="ticker" id="serfausTicker">
+      <div class="ticker-item" id="serfausTicker1">Serfaus-Fiss-Ladis Wetter wird geladen</div>
+      <div class="ticker-item" id="serfausTicker2">Serfaus-Fiss-Ladis Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="serfausMeta"></div>
+  <div class="hotel-section" id="hotels-serfaus"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ STUBAITAL -->
+<section class="region">
+  <h2><a href="https://www.stubaier-gletscher.com/de/winter" target="_blank" rel="noopener" class="region-link">Stubaital / Ötztal</a> <span class="region-dist">Entfernungen: Stuttgart ~335 km · München ~220 km · Ulm ~275 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Stubaier Gletscher – Eisgrat (3210m)</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5234" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5234" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+
+    <div class="cam-card">
+      <h3>Sölden – Rettenbach</h3>
+      <iframe src="https://soelden.panomax.com/rettenbach" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://soelden.panomax.com/rettenbach" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Obergurgl – Hohe Mut</h3>
+      <iframe src="https://obergurgl.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://obergurgl.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="stubaitalTickerWrap">
+    <div class="ticker" id="stubaitalTicker">
+      <div class="ticker-item" id="stubaitalTicker1">Stubaital/Ötztal Wetter wird geladen</div>
+      <div class="ticker-item" id="stubaitalTicker2">Stubaital/Ötztal Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="stubaitalMeta"></div>
+  <div class="hotel-section" id="hotels-stubaital"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ ZILLERTAL -->
+<section class="region">
+  <h2><a href="https://www.zillertal.at/de/winter/skifahren" target="_blank" rel="noopener" class="region-link">Zillertal</a> <span class="region-dist">Entfernungen: Stuttgart ~385 km · München ~185 km · Ulm ~315 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Mayrhofen / Hippach</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5636" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5636" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Tux / Hintertux – Wanglspitze</h3>
+      <iframe src="https://hintertux.panomax.com/wanglspitze" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://hintertux.panomax.com/wanglspitze" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Zell am Ziller</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5229" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5229" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+
+  </div>
+  <div class="ticker-wrap" id="zillertalTickerWrap">
+    <div class="ticker" id="zillertalTicker">
+      <div class="ticker-item" id="zillertalTicker1">Zillertal Wetter wird geladen</div>
+      <div class="ticker-item" id="zillertalTicker2">Zillertal Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="zillertalMeta"></div>
+  <div class="hotel-section" id="hotels-zillertal"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ KITZBÜHEL -->
+<section class="region">
+  <h2><a href="https://www.kitzbuehel.com/de/winter/skigebiet" target="_blank" rel="noopener" class="region-link">Kitzbühel / SkiWelt</a> <span class="region-dist">Entfernungen: Stuttgart ~420 km · München ~132 km · Ulm ~350 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Kitzbühel – Hahnenkamm</h3>
+      <video src="https://stsfc001.feratel.com/streams/stsstore053/1/05604_69b2b85a-697bVid.mp4?dcsdesign=feratel4" autoplay muted loop playsinline></video>
+      <div class="cam-link"><a href="https://stsfc001.feratel.com/streams/stsstore053/1/05604_69b2b85a-697bVid.mp4?dcsdesign=feratel4" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Söll – Hohe Salve</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5687" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5687" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Ellmau – Hartkaiserbahn</h3>
+      <iframe src="https://webtv.feratel.com/webtv/?cam=5525" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://webtv.feratel.com/webtv/?cam=5525" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="kitzbuehelerTickerWrap">
+    <div class="ticker" id="kitzbuehelerTicker">
+      <div class="ticker-item" id="kitzbuehelerTicker1">Kitzbühel Wetter wird geladen</div>
+      <div class="ticker-item" id="kitzbuehelerTicker2">Kitzbühel Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="kitzbuehelerMeta"></div>
+  <div class="hotel-section" id="hotels-kitzbueheler"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ SALZBURG -->
+<section class="region">
+  <h2><a href="https://www.saalbach.com/de/winter" target="_blank" rel="noopener" class="region-link">Salzburger Land</a> <span class="region-dist">Entfernungen: Stuttgart ~455 km · München ~172 km · Ulm ~380 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Saalbach – Schattberg</h3>
+      <video src="https://stsfc001.feratel.com/streams/stsstore053/1/05604_69b2b85a-697bVid.mp4?dcsdesign=feratel4" autoplay muted loop playsinline></video>
+      <div class="cam-link"><a href="https://stsfc001.feratel.com/streams/stsstore053/1/05604_69b2b85a-697bVid.mp4?dcsdesign=feratel4" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Fieberbrunn – Streuböden Talstation</h3>
+      <iframe src="https://fieberbrunn.panomax.com/streuboeden-talstation" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://fieberbrunn.panomax.com/streuboeden-talstation" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Obertauern – Gamsleiten</h3>
+      <iframe src="https://obertauern.panomax.com/gamsleiten" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://obertauern.panomax.com/gamsleiten" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+
+  </div>
+  <div class="ticker-wrap" id="salzburgTickerWrap">
+    <div class="ticker" id="salzburgTicker">
+      <div class="ticker-item" id="salzburgTicker1">Salzburg Wetter wird geladen</div>
+      <div class="ticker-item" id="salzburgTicker2">Salzburg Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="salzburgMeta"></div>
+  <div class="hotel-section" id="hotels-salzburg"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ STEIERMARK -->
+<section class="region">
+  <h2><a href="https://www.planai.at/de/winter" target="_blank" rel="noopener" class="region-link">Steiermark / Schladming</a> <span class="region-dist">Entfernungen: Stuttgart ~530 km · München ~300 km · Ulm ~455 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Schladming – Lärchkogel</h3>
+      <iframe src="https://planai.panomax.com/laerchkogel" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://planai.panomax.com/laerchkogel" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Schladming – Hochwurzen</h3>
+      <iframe src="https://hochwurzen.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://hochwurzen.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Dachstein – Gletscher (2700m)</h3>
+      <iframe src="https://dachstein.panomax.com" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://dachstein.panomax.com" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="steiermarkTickerWrap">
+    <div class="ticker" id="steiermarkTicker">
+      <div class="ticker-item" id="steiermarkTicker1">Steiermark Wetter wird geladen</div>
+      <div class="ticker-item" id="steiermarkTicker2">Steiermark Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="steiermarkMeta"></div>
+  <div class="hotel-section" id="hotels-steiermark"></div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ SKI AMADE -->
+<section class="region">
+  <h2><a href="https://www.skiamade.com/de/winter" target="_blank" rel="noopener" class="region-link">Ski Amadé / Bad Gastein</a> <span class="region-dist">Entfernungen: Stuttgart ~480 km · München ~270 km · Ulm ~410 km</span></h2>
+  <div class="cam-grid">
+    <div class="cam-card">
+      <h3>Bad Gastein – Stubnerkogel</h3>
+      <iframe src="https://gastein.panomax.com/stubnerkogel" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://gastein.panomax.com/stubnerkogel" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Flachau – Snow Space</h3>
+      <iframe src="https://flachau.panomax.com/sonnkogel" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://flachau.panomax.com/sonnkogel" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+    <div class="cam-card">
+      <h3>Zauchensee – Gipfel</h3>
+      <iframe src="https://zauchensee.panomax.com/gipfel" loading="lazy" allowfullscreen></iframe>
+      <div class="cam-link"><a href="https://zauchensee.panomax.com/gipfel" target="_blank" rel="noopener">Original öffnen</a></div>
+    </div>
+  </div>
+  <div class="ticker-wrap" id="amadeTickerWrap">
+    <div class="ticker" id="amadeTicker">
+      <div class="ticker-item" id="amadeTicker1">Ski Amadé Wetter wird geladen</div>
+      <div class="ticker-item" id="amadeTicker2">Ski Amadé Wetter wird geladen</div>
+    </div>
+  </div>
+  <div class="meta-note" id="amadeMeta"></div>
+  <div class="hotel-section" id="hotels-amade"></div>
+</section>
+
+<script>
+const TICKER_DURATION_SECONDS = 22;
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
+
+function weatherCodeToIcon(code){
+  if(code === 0) return "☀️";
+  if(code === 1) return "🌤️";
+  if(code === 2) return "⛅";
+  if(code === 3) return "☁️";
+  if([45,48].includes(code)) return "🌫️";
+  if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return "🌧️";
+  if([71,73,75,77,85,86].includes(code)) return "🌨️";
+  if([95,96,99].includes(code)) return "⛈️";
+  return "⛅";
+}
+
+function formatUpdateTime(){
+  return new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+}
+
+// Extract daily forecast summary: max temp, min temp, dominant weather code
+function extractDailyForecast(daily, dayOffset){
+  try{
+    const codes   = daily?.weather_code         ?? [];
+    const maxT    = daily?.temperature_2m_max   ?? [];
+    const minT    = daily?.temperature_2m_min   ?? [];
+    if(codes.length <= dayOffset) return null;
+    return {
+      code: codes[dayOffset],
+      max:  Math.round(maxT[dayOffset]),
+      min:  Math.round(minT[dayOffset])
+    };
+  } catch(e){ return null; }
+}
+
+// Returns short weekday label (Mo/Di/Mi/Do/Fr/Sa/So) for a date offset from today
+function dayLabel(offset){
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return ["So","Mo","Di","Mi","Do","Fr","Sa"][d.getDay()];
+}
+
+// Fetches current weather + 3-day daily forecast for the valley location.
+// latV/lonV = Tal-Koordinaten, latM/lonM = Bergstation-Koordinaten
+async function fetchLocation(lat, lon, includeDaily){
+  const base = "https://api.open-meteo.com/v1/forecast"
+    + "?latitude=" + lat + "&longitude=" + lon
+    + "&current=temperature_2m,wind_speed_10m,weather_code,snow_depth"
+    + "&timezone=Europe%2FVienna";
+  const url = includeDaily
+    ? base + "&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=4"
+    : base;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+async function loadWeather(latV, lonV, latM, lonM){
+  // Zwei separate Calls: Tal (mit Forecast) + Berg (nur current)
+  const [valley, summit] = await Promise.all([
+    fetchLocation(latV, lonV, true),
+    fetchLocation(latM, lonM, false)
+  ]);
+
+  const cv = valley.current || {};
+  const cm = summit.current || {};
+
+  // snow_depth in Metern -> cm, null wenn nicht vorhanden
+  const snowV = cv.snow_depth != null ? Math.round(cv.snow_depth * 100) : null;
+  const snowM = cm.snow_depth != null ? Math.round(cm.snow_depth * 100) : null;
+
+  return {
+    temp:     cv.temperature_2m    ?? "–",
+    wind:     cv.wind_speed_10m    ?? "–",
+    code:     cv.weather_code      ?? 2,
+    tempMnt:  cm.temperature_2m    ?? null,
+    snowVal:  snowV,
+    snowMnt:  snowM,
+    forecast: [
+      extractDailyForecast(valley.daily, 1),
+      extractDailyForecast(valley.daily, 2),
+      extractDailyForecast(valley.daily, 3),
+    ]
+  };
+}
+
+function resetTickerAnimation(tickerId, item1Id, item2Id, duration){
+  const ticker=document.getElementById(tickerId);
+  const item1=document.getElementById(item1Id);
+  const item2=document.getElementById(item2Id);
+  if(!ticker||!item1||!item2) return;
+  ticker.style.animation="none";
+  ticker.style.transform="translateX(0)";
+  void ticker.offsetWidth;
+  const shift=item1.offsetWidth||1000;
+  item2.style.minWidth=item1.offsetWidth+"px";
+  ticker.style.setProperty("--ticker-shift",shift+"px");
+  ticker.style.animation="ticker-marquee "+duration+"s linear infinite";
+}
+
+function setTickerText(wrapId, tickerId, item1Id, item2Id, metaId, text, duration){
+  const wrap=document.getElementById(wrapId);
+  const item1=document.getElementById(item1Id);
+  const item2=document.getElementById(item2Id);
+  const meta=document.getElementById(metaId);
+  item1.textContent=text;
+  item2.textContent=text;
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      resetTickerAnimation(tickerId, item1Id, item2Id, duration);
+      wrap.classList.add("is-ready");
+      if(meta) meta.textContent="Letztes Update: "+formatUpdateTime();
+    });
+  });
+}
+
+// prefix, valley coords, mountain coords, display label
+async function updateTicker(prefix, latV, lonV, latM, lonM, label){
+  try{
+    const w = await loadWeather(latV, lonV, latM, lonM);
+    const icon = weatherCodeToIcon(w.code);
+
+    // Wetter
+    let text = icon + "   " + label + "   —   🌡️ Tal: " + w.temp + "°C   ·   💨 Wind Tal: " + w.wind + " km/h";
+    if(w.tempMnt !== null){
+      text += "   ·   🌡️ Berg: " + w.tempMnt + "°C";
+    }
+
+    // Schneehöhen – mit klarem Trenner
+    let snowParts = [];
+    if(w.snowVal !== null && w.snowVal >= 0) snowParts.push("Tal " + w.snowVal + " cm");
+    if(w.snowMnt !== null && w.snowMnt >= 0) snowParts.push("Berg " + w.snowMnt + " cm");
+    if(snowParts.length > 0){
+      text += "          ┊          ❄️  Schnee:   " + snowParts.join("   ·   ");
+    }
+
+    // 3-day forecast
+    const forecastLabels = ["Morgen", dayLabel(2), dayLabel(3)];
+    const forecastParts = w.forecast
+      .map((f, i) => {
+        if(!f) return null;
+        const fIcon = weatherCodeToIcon(f.code);
+        return fIcon + " " + forecastLabels[i] + " " + f.max + "/" + f.min + "°C";
+      })
+      .filter(Boolean);
+
+    if(forecastParts.length > 0){
+      text += "          ┊          🗓️  Vorhersage:   " + forecastParts.join("     ·     ");
+    }
+
+    text += "          ";
+    setTickerText(prefix+"TickerWrap",prefix+"Ticker",prefix+"Ticker1",prefix+"Ticker2",prefix+"Meta",text,TICKER_DURATION_SECONDS);
+  } catch(e){
+    setTickerText(prefix+"TickerWrap",prefix+"Ticker",prefix+"Ticker1",prefix+"Ticker2",prefix+"Meta",label+" – Wetterdaten konnten nicht geladen werden",TICKER_DURATION_SECONDS);
+  }
+}
+
+function recalcAllTickers(){
+  const ids=["montafon","zillertal","arlberg","ischgl","serfaus","stubaital","kitzbueheler","salzburg","steiermark","amade"];
+  ids.forEach(id=>resetTickerAnimation(id+"Ticker",id+"Ticker1",id+"Ticker2",TICKER_DURATION_SECONDS));
+}
+
+async function initDashboard(){
+  // updateTicker(prefix, latVal, lonVal, latMnt, lonMnt, label)
+  // Tal-Koordinaten = Ortschaft / Talstation
+  // Berg-Koordinaten = höchste Bergstation / Gipfelnähe
+  // Staggered mit 300ms Abstand um Open-Meteo Rate-Limit zu vermeiden
+  // Tal-Koordinaten = Ort/Talstation, Berg-Koordinaten = Gipfel/Bergstation
+  const tickers = [
+    // prefix       Tal-Lat  Tal-Lon  Berg-Lat Berg-Lon  Label
+    ["allgaeu",      47.41,  10.28,   47.33,  10.37,  "Allgäu/Oberstdorf"],   // Tal: Oberstdorf 813m, Berg: Nebelhorn 2224m
+    ["zugspitze",    47.50,  11.10,   47.42,  10.99,  "Zugspitze/Garmisch"],  // Tal: Garmisch 720m, Berg: Zugspitze 2962m
+    ["montafon",     47.10,  9.87,    46.97,   9.97,  "Montafon"],            // Tal: Schruns 690m, Berg: Hochjoch 2520m
+    ["arlberg",      47.14,  10.29,   47.13,  10.22,  "Arlberg"],             // Tal: St. Anton 1304m, Berg: Valluga 2811m
+    ["ischgl",       47.01,  10.29,   46.98,  10.28,  "Ischgl/Samnaun"],      // Tal: Ischgl 1377m, Berg: Palinkopf 2864m
+    ["serfaus",      47.04,  10.61,   47.00,  10.55,  "Serfaus-Fiss-Ladis"],  // Tal: Serfaus 1427m, Berg: Lazid 2768m
+    ["stubaital",    47.24,  11.40,   46.98,  11.13,  "Stubai/Ötztal"],       // Tal: Neustift 1000m, Berg: Stubaier Gletscher 3210m
+    ["zillertal",    47.22,  11.87,   47.06,  11.87,  "Zillertal"],           // Tal: Mayrhofen 630m, Berg: Hintertuxer Gletscher 3250m
+    ["kitzbueheler", 47.45,  12.39,   47.43,  12.36,  "Kitzbühel/SkiWelt"],  // Tal: Kitzbühel 762m, Berg: Hahnenkamm 1712m
+    ["salzburg",     47.39,  12.64,   47.28,  12.68,  "Salzburger Land"],     // Tal: Saalbach 1003m, Berg: Zwölferkogel 2050m
+    ["amade",        47.12,  13.14,   47.07,  13.10,  "Ski Amadé/Gastein"],   // Tal: Bad Gastein 1080m, Berg: Stubnerkogel 2246m
+    ["steiermark",   47.39,  13.69,   47.40,  13.60,  "Schladming/Dachstein"],// Tal: Schladming 745m, Berg: Dachstein 2700m
+  ];
+  for(let i = 0; i < tickers.length; i++){
+    const [prefix, latV, lonV, latM, lonM, label] = tickers[i];
+    updateTicker(prefix, latV, lonV, latM, lonM, label);
+    if(i < tickers.length - 1) await new Promise(r => setTimeout(r, 350));
+  }
+}
+
+
+// ── Hotel / Unterkunfts-Feature ──────────────────────────────────────────────
+const SHEET_ID = '1DK6G91k0lmpmC_d3Vb6ZFx62vxIC2TnKi4cUZPXI2b4';
+const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=0`;
+
+async function loadHotels() {
+  try {
+    const res = await fetch(SHEET_URL);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+
+    // CSV parsen
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').toLowerCase().trim());
+    const rows = lines.slice(1);
+
+    // Group by region
+    const byRegion = {};
+    rows.forEach(line => {
+      // CSV-Zeile parsen (berücksichtigt Kommas in Anführungszeichen)
+      const cols = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+        else { cur += ch; }
+      }
+      cols.push(cur.trim());
+
+      const get = key => {
+        const i = headers.indexOf(key);
+        return i >= 0 ? (cols[i] || '').replace(/^"|"$/g, '').trim() : '';
+      };
+      const region = get('region');
+      if (!region) return;
+      if (!byRegion[region]) byRegion[region] = [];
+      byRegion[region].push({
+        name:         get('name'),
+        url:          get('url'),
+        beschreibung: get('beschreibung'),
+        entfernung:   get('entfernung'),
+        maps:         get('maps'),
+      });
+    });
+
+    // Render into each region
+    Object.entries(byRegion).forEach(([region, hotels]) => {
+      const container = document.getElementById('hotels-' + region);
+      if (!container || hotels.length === 0) return;
+
+      const toggleId = 'hotel-toggle-' + region;
+      const bodyId   = 'hotel-body-' + region;
+
+      const toggle = document.createElement('button');
+      toggle.className = 'hotel-toggle';
+      toggle.id = toggleId;
+      toggle.innerHTML = `🏨 Unterkunfts-Tipps (${hotels.length}) <span class="toggle-arrow">▼</span>`;
+
+      const body = document.createElement('div');
+      body.className = 'hotel-body';
+      body.id = bodyId;
+
+      hotels.forEach(h => {
+        const card = document.createElement('div');
+        card.className = 'hotel-card';
+
+        let html = `<div class="hotel-name">${h.name}</div>`;
+        if (h.beschreibung) html += `<div class="hotel-desc">${h.beschreibung}</div>`;
+        if (h.entfernung)   html += `<div class="hotel-dist">📍 ${h.entfernung}</div>`;
+
+        html += `<div class="hotel-links">`;
+        if (h.url)  html += `<a href="${h.url}" target="_blank" rel="noopener" class="hotel-btn">🌐 Website</a>`;
+        if (h.maps) html += `<a href="${h.maps}" target="_blank" rel="noopener" class="hotel-btn maps">📍 Google Maps</a>`;
+        html += `</div>`;
+
+        card.innerHTML = html;
+        body.appendChild(card);
+      });
+
+      toggle.addEventListener('click', () => {
+        toggle.classList.toggle('is-open');
+        body.classList.toggle('is-open');
+      });
+
+      container.appendChild(toggle);
+      container.appendChild(body);
+    });
+
+  } catch(e) {
+    console.warn('Hotel-Daten konnten nicht geladen werden:', e);
+  }
+}
+
+
+// ── Spritpreise: Tankerkönig (DE) + E-Control (AT) ──────────────────────────
+const TANKERKOENIG_KEY = '0e0bdb4f-f4c8-4893-aa2c-c35849851c37'; // https://creativecommons.tankerkoenig.de
+
+// Koordinaten Stuttgart Mitte (für DE-Preise)
+const DE_LAT = 48.775, DE_LON = 9.182;
+// Koordinaten Innsbruck (für AT-Preise, zentral für Skigebiete)
+const AT_LAT = 47.269, AT_LON = 11.405;
+
+async function loadFuelPrices() {
+  const el = document.getElementById('fuel-text');
+  const note = document.getElementById('fuel-note');
+
+  // Österreich via E-Control API (kein Key nötig)
+  async function loadAustria() {
+    try {
+      const [resE5, resE10, resDiesel] = await Promise.all([
+        fetch('https://api.e-control.at/sprit/1.0/search/gas-stations/by-address?latitude=' + AT_LAT + '&longitude=' + AT_LON + '&fuelType=SUP&includeClosed=false'),
+        fetch('https://api.e-control.at/sprit/1.0/search/gas-stations/by-address?latitude=' + AT_LAT + '&longitude=' + AT_LON + '&fuelType=SUP10&includeClosed=false'),
+        fetch('https://api.e-control.at/sprit/1.0/search/gas-stations/by-address?latitude=' + AT_LAT + '&longitude=' + AT_LON + '&fuelType=DIE&includeClosed=false')
+      ]);
+      const dataE5 = await resE5.json();
+      const dataE10 = await resE10.json();
+      const dataDiesel = await resDiesel.json();
+
+      const avg = data => {
+        const prices = data.filter(s => s.prices && s.prices.length > 0)
+          .map(s => s.prices[0].amount).filter(p => p > 0).sort((a,b) => a-b);
+        return prices.length ? prices.slice(0,10).reduce((a,b)=>a+b,0) / Math.min(10, prices.length) : null;
+      };
+
+      const avgE5 = avg(dataE5);
+      const avgE10 = avg(dataE10);
+      const avgDiesel = avg(dataDiesel);
+
+      return {
+        e5:     avgE5     ? avgE5.toFixed(3).replace('.',',')     : '~1,54',
+        e10:    avgE10    ? avgE10.toFixed(3).replace('.',',')    : '~1,52',
+        diesel: avgDiesel ? avgDiesel.toFixed(3).replace('.',',') : '~1,58',
+        live: true
+      };
+    } catch(e) {
+      return { e5: '~1,54', e10: '~1,52', diesel: '~1,58', live: false };
+    }
+  }
+
+  // Deutschland via Tankerkönig API
+  async function loadGermany() {
+    if (TANKERKOENIG_KEY === 'DEIN_KEY_HIER') {
+      return { e10: '~2,08', diesel: '~2,15', live: false };
+    }
+    try {
       const tkFetch = type => fetch('https://api.allorigins.win/get?url=' + encodeURIComponent('https://creativecommons.tankerkoenig.de/json/list.php?lat=' + DE_LAT + '&lng=' + DE_LON + '&rad=10&sort=price&type=' + type + '&apikey=' + TANKERKOENIG_KEY)).then(r=>r.json()).then(d=>JSON.parse(d.contents));
       const [dataE5de, dataE10de, dataDieselde] = await Promise.all([tkFetch('e5'), tkFetch('e10'), tkFetch('diesel')]);
       const stE5  = (dataE5de.stations||[]).filter(s=>s.e5>0).slice(0,10);
